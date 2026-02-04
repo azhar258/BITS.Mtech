@@ -1,0 +1,432 @@
+Algorithm: PRE_VALIDATION_CHECK_CNN
+Input: notebook_path, folder_name
+Output: (pass/fail, error_message)
+
+1. LOAD notebook from notebook_path
+   IF notebook is NULL or corrupted THEN
+      RETURN (FAIL, "Error or corrupted notebook - cannot be opened", marks=0)
+   
+2. EXTRACT bits_id_from_filename from notebook_path
+   EXTRACT bits_id_from_notebook from first cell metadata/content
+   IF bits_id_from_filename ≠ bits_id_from_notebook THEN
+      RETURN (FAIL, "Filename does not match BITS ID inside notebook", marks=0)
+
+3. EXTRACT student_name_from_notebook from first cell
+   IF folder_name ≠ student_name_from_notebook THEN
+      RETURN (FAIL, "Folder name does not match student name in notebook", marks=0)
+
+4. CHECK notebook execution status
+   IF any cell has no output OR all output cells are empty THEN
+      RETURN (FAIL, "All outputs cleared - notebook not executed", marks=0)
+
+5. CHECK for execution errors
+   FOR each cell in notebook DO
+      IF cell contains error traceback OR exception THEN
+         RETURN (FAIL, "Notebook contains execution errors", marks=0)
+
+6. RETURN (PASS, "Pre-validation successful", proceed_to_grading=TRUE)
+
+
+
+
+Algorithm: CNN_STRICT_GRADING
+Input: validated_notebook
+Output: (total_marks, breakdown, comments)
+
+Initialize: total_marks = 0, breakdown = {}, comments = []
+
+// ============================================================
+// SECTION 1: Custom CNN Architecture (5 marks)
+// ============================================================
+
+1. CUSTOM_CNN_CHECK (5 marks):
+   score = 0
+   
+   a) Extract JSON output from notebook
+      IF JSON block not found THEN
+         comments.append("No JSON output found")
+         score = 0
+      ELSE
+         custom_cnn_data = parse_json("custom_cnn")
+   
+   b) Check architecture with GAP (2 marks)
+      source_code = extract_all_source_code(notebook)
+      
+      // Check for CNN architecture
+      IF "Conv2D" in source_code OR "nn.Conv2d" in source_code THEN
+         has_conv_layers = TRUE
+      ELSE
+         has_conv_layers = FALSE
+      
+      // Check for Global Average Pooling
+      IF "GlobalAveragePooling2D" in source_code OR "AdaptiveAvgPool2d" in source_code OR 
+         "global_average_pool" in source_code OR 
+         custom_cnn_data['architecture']['has_global_average_pooling'] == true THEN
+         has_gap = TRUE
+      ELSE
+         has_gap = FALSE
+      
+      // Check for prohibited Flatten+Dense pattern (without GAP)
+      IF ("Flatten" in source_code OR "flatten" in source_code) AND 
+         ("Dense" in source_code OR "Linear" in source_code) AND 
+         NOT has_gap THEN
+         uses_flatten_dense = TRUE
+      ELSE
+         uses_flatten_dense = FALSE
+      
+      IF has_conv_layers AND has_gap AND NOT uses_flatten_dense THEN
+         score += 2
+      ELSE IF uses_flatten_dense THEN
+         comments.append("Custom CNN uses Flatten+Dense instead of GAP (prohibited)")
+         score += 0
+      ELSE IF NOT has_gap THEN
+         comments.append("Custom CNN missing Global Average Pooling layer")
+         score += 0
+      ELSE
+         comments.append("Custom CNN architecture incomplete")
+         score += 0
+   
+   c) Check model compilation/configuration (1 mark)
+      framework = custom_cnn_data.get('framework', '').lower()
+      
+      IF framework in ['keras', 'tensorflow'] THEN
+         // Check for model.compile()
+         IF "model.compile" in source_code OR "compile(" in source_code THEN
+            properly_configured = TRUE
+         ELSE
+            properly_configured = FALSE
+      ELSE IF framework == 'pytorch' THEN
+         // Check for optimizer and loss function
+         IF ("optimizer" in source_code OR "optim." in source_code) AND 
+            ("criterion" in source_code OR "loss" in source_code) THEN
+            properly_configured = TRUE
+         ELSE
+            properly_configured = FALSE
+      ELSE
+         properly_configured = FALSE
+      
+      IF properly_configured THEN
+         score += 1
+      ELSE
+         comments.append("Custom CNN not properly compiled/configured")
+   
+   d) Check training completed (1 mark)
+      initial_loss = custom_cnn_data.get('initial_loss')
+      final_loss = custom_cnn_data.get('final_loss')
+      
+      IF initial_loss AND final_loss AND initial_loss > 0 AND final_loss > 0 THEN
+         score += 1
+      ELSE
+         comments.append("Custom CNN loss values missing or invalid")
+   
+   e) Check metrics calculated (1 mark)
+      required_metrics = ['accuracy', 'precision', 'recall', 'f1_score']
+      metrics_found = 0
+      
+      FOR each metric in required_metrics DO
+         IF custom_cnn_data.get(metric) is not None AND custom_cnn_data.get(metric) != 0 THEN
+            metrics_found += 1
+      
+      IF metrics_found == 4 THEN
+         score += 1
+      ELSE
+         comments.append(f"Custom CNN metrics incomplete: {metrics_found}/4")
+   
+   breakdown['custom_cnn'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 2: Transfer Learning Model (5 marks)
+// ============================================================
+
+2. TRANSFER_LEARNING_CHECK (5 marks):
+   score = 0
+   tl_data = parse_json("transfer_learning")
+   
+   a) Check base model with frozen layers (2 marks)
+      base_model = tl_data.get('base_model', '')
+      
+      valid_models = ['ResNet18', 'ResNet50', 'VGG16', 'VGG19', 
+                     'resnet18', 'resnet50', 'vgg16', 'vgg19']
+      
+      valid_base_model = FALSE
+      FOR each model in valid_models DO
+         IF model.lower() in base_model.lower() THEN
+            valid_base_model = TRUE
+            BREAK
+      
+      frozen_layers = tl_data.get('frozen_layers', 0)
+      has_frozen_layers = frozen_layers > 0
+      
+      IF valid_base_model AND has_frozen_layers THEN
+         score += 2
+      ELSE IF NOT valid_base_model THEN
+         comments.append(f"Invalid base model: {base_model}")
+      ELSE IF NOT has_frozen_layers THEN
+         comments.append("Transfer learning base layers not frozen")
+      ELSE
+         comments.append("Transfer learning base model setup incomplete")
+   
+   b) Check GAP + custom head (1 mark)
+      has_gap = tl_data.get('has_global_average_pooling') == true
+      
+      IF has_gap THEN
+         score += 1
+      ELSE
+         comments.append("Transfer learning model missing GAP layer")
+   
+   c) Check training completed (1 mark)
+      initial_loss = tl_data.get('initial_loss')
+      final_loss = tl_data.get('final_loss')
+      
+      IF initial_loss AND final_loss AND initial_loss > 0 AND final_loss > 0 THEN
+         score += 1
+      ELSE
+         comments.append("Transfer learning loss values missing or invalid")
+   
+   d) Check metrics calculated (1 mark)
+      required_metrics = ['accuracy', 'precision', 'recall', 'f1_score']
+      metrics_found = 0
+      
+      FOR each metric in required_metrics DO
+         IF tl_data.get(metric) is not None AND tl_data.get(metric) != 0 THEN
+            metrics_found += 1
+      
+      IF metrics_found == 4 THEN
+         score += 1
+      ELSE
+         comments.append(f"Transfer learning metrics incomplete: {metrics_found}/4")
+   
+   breakdown['transfer_learning'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 3: Training Process (4 marks)
+// ============================================================
+
+3. LOSS_CONVERGENCE_CHECK (4 marks):
+   score = 0
+   
+   a) Custom CNN convergence (2 marks)
+      cnn_initial = custom_cnn_data.get('initial_loss')
+      cnn_final = custom_cnn_data.get('final_loss')
+      
+      IF cnn_initial AND cnn_final AND cnn_initial > 0 THEN
+         IF cnn_final < cnn_initial THEN
+            reduction_pct = ((cnn_initial - cnn_final) / cnn_initial) * 100
+            
+            IF reduction_pct >= 50 THEN
+               score += 2
+               comments.append(f"Custom CNN converged well: {reduction_pct:.1f}% reduction")
+            ELSE IF reduction_pct >= 20 THEN
+               score += 1
+               comments.append(f"Custom CNN partial convergence: {reduction_pct:.1f}%")
+            ELSE
+               comments.append(f"Custom CNN poor convergence: {reduction_pct:.1f}%")
+         ELSE
+            comments.append("Custom CNN loss did not decrease")
+      ELSE
+         comments.append("Custom CNN loss values invalid")
+   
+   b) Transfer learning convergence (2 marks)
+      tl_initial = tl_data.get('initial_loss')
+      tl_final = tl_data.get('final_loss')
+      
+      IF tl_initial AND tl_final AND tl_initial > 0 THEN
+         IF tl_final < tl_initial THEN
+            reduction_pct = ((tl_initial - tl_final) / tl_initial) * 100
+            
+            IF reduction_pct >= 50 THEN
+               score += 2
+               comments.append(f"Transfer learning converged well: {reduction_pct:.1f}% reduction")
+            ELSE IF reduction_pct >= 20 THEN
+               score += 1
+               comments.append(f"Transfer learning partial convergence: {reduction_pct:.1f}%")
+            ELSE
+               comments.append(f"Transfer learning poor convergence: {reduction_pct:.1f}%")
+         ELSE
+            comments.append("Transfer learning loss did not decrease")
+      ELSE
+         comments.append("Transfer learning loss values invalid")
+   
+   breakdown['training_process'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 4: Metrics Calculation (2 marks)
+// ============================================================
+
+4. METRICS_VALIDATION (2 marks):
+   score = 0
+   required_metrics = ['accuracy', 'precision', 'recall', 'f1_score']
+   
+   // Check completeness and validity together
+   cnn_metrics_complete = TRUE
+   cnn_metrics_valid = TRUE
+   tl_metrics_complete = TRUE
+   tl_metrics_valid = TRUE
+   
+   FOR each metric in required_metrics DO
+      // Custom CNN
+      cnn_val = custom_cnn_data.get(metric)
+      IF cnn_val is None OR cnn_val == 0 THEN
+         cnn_metrics_complete = FALSE
+      ELSE IF NOT (0 <= cnn_val <= 1) THEN
+         cnn_metrics_valid = FALSE
+      
+      // Transfer Learning
+      tl_val = tl_data.get(metric)
+      IF tl_val is None OR tl_val == 0 THEN
+         tl_metrics_complete = FALSE
+      ELSE IF NOT (0 <= tl_val <= 1) THEN
+         tl_metrics_valid = FALSE
+   
+   // Scoring
+   IF cnn_metrics_complete AND cnn_metrics_valid AND 
+      tl_metrics_complete AND tl_metrics_valid THEN
+      score = 2
+   ELSE IF (cnn_metrics_complete AND cnn_metrics_valid) OR 
+           (tl_metrics_complete AND tl_metrics_valid) THEN
+      score = 1
+      IF NOT cnn_metrics_complete OR NOT tl_metrics_complete THEN
+         comments.append("Metrics incomplete for one or both models")
+      ELSE
+         comments.append("Metrics out of valid range [0, 1] for one or both models")
+   ELSE
+      score = 0
+      comments.append("Metrics missing or invalid for both models")
+   
+   // Primary metric validation (informational only, no marks)
+   primary_metric = json_data.get('primary_metric', '').lower()
+   IF primary_metric NOT in ['accuracy', 'precision', 'recall'] THEN
+      comments.append("Warning: Invalid primary metric specified")
+   
+   metric_justification = json_data.get('metric_justification', '')
+   IF NOT metric_justification OR len(metric_justification.strip()) < 20 THEN
+      comments.append("Warning: Metric justification missing or too short")
+   
+   breakdown['metrics'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 5: Analysis Quality (2 marks)
+// ============================================================
+
+5. ANALYSIS_CHECK (2 marks):
+   score = 0
+   
+   // Extract analysis text
+   analysis_text = json_data.get('analysis', '')
+   IF NOT analysis_text OR len(analysis_text.strip()) < 50 THEN
+      // Fallback: extract from markdown cells
+      analysis_text = extract_analysis_from_markdown(notebook)
+   
+   word_count = count_words(analysis_text)
+   
+   // Word count check (informational only - no marks deduction)
+   IF word_count > 200 THEN
+      comments.append(f"Warning: Analysis exceeds 200 words ({word_count} words)")
+   
+   // Content quality check - key topics (2 marks)
+   analysis_lower = analysis_text.lower()
+   
+   key_topics = [
+      'performance', 'accuracy', 'precision', 'recall', 'f1',  // Performance comparison
+      'pre-training', 'pretrained', 'transfer',  // Pre-training impact
+      'gap', 'global average pooling', 'overfitting',  // GAP effect
+      'computational', 'parameters', 'training time', 'cost',  // Computational cost
+      'convergence', 'loss',  // Convergence behavior
+      'advantage', 'disadvantage', 'insight', 'learning'  // Transfer learning insights
+   ]
+   
+   topics_covered = 0
+   FOR each topic in key_topics DO
+      IF topic in analysis_lower THEN
+         topics_covered += 1
+   
+   // Scoring based on topic coverage and depth
+   IF topics_covered >= 8 THEN
+      score = 2
+   ELSE IF topics_covered >= 5 THEN
+      score = 1
+      comments.append(f"Analysis covers some topics but could be deeper: {topics_covered} keywords")
+   ELSE
+      score = 0
+      comments.append(f"Analysis lacks depth: only {topics_covered} key topics covered")
+   
+   breakdown['analysis'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 6: Code Structure (2 marks)
+// ============================================================
+
+6. CODE_STRUCTURE_CHECK (2 marks):
+   score = 0
+   source_code = extract_all_source_code(notebook)
+   
+   a) Model definitions complete (1 mark)
+      // Check for Custom CNN
+      has_cnn = ("Conv2D" in source_code OR "nn.Conv2d" in source_code) AND
+                ("GlobalAveragePooling" in source_code OR "AdaptiveAvgPool" in source_code)
+      
+      // Check for Transfer Learning
+      has_transfer = ("ResNet" in source_code OR "VGG" in source_code OR 
+                     "resnet" in source_code OR "vgg" in source_code) AND
+                     ("trainable" in source_code OR "requires_grad" in source_code OR 
+                      "freeze" in source_code)
+      
+      IF has_cnn AND has_transfer THEN
+         score += 1
+      ELSE
+         comments.append("Model definitions incomplete")
+   
+   b) JSON output structure (1 mark)
+      IF json_data THEN
+         has_cnn_key = 'custom_cnn' in json_data
+         has_tl_key = 'transfer_learning' in json_data
+         has_dataset_info = 'dataset_name' in json_data
+         
+         IF has_cnn_key AND has_tl_key AND has_dataset_info THEN
+            score += 1
+         ELSE
+            comments.append("JSON output structure incorrect or incomplete")
+      ELSE
+         comments.append("No JSON output found")
+   
+   breakdown['code_structure'] = score
+   total_marks += score
+
+// ============================================================
+// DATASET VALIDATION (Additional checks, no marks deduction)
+// ============================================================
+
+7. DATASET_CHECKS (Informational warnings):
+   
+   a) Check train/test split
+      train_test_ratio = json_data.get('train_test_ratio', '')
+      
+      IF train_test_ratio NOT in ['90/10', '85/15'] THEN
+         comments.append(f"Warning: Train/test split {train_test_ratio} not standard (use 90/10 or 85/15)")
+   
+   b) Check samples per class
+      samples_per_class_info = json_data.get('samples_per_class', '')
+      
+      // Try to detect if minimum samples requirement met
+      IF "min:" in samples_per_class_info OR "min" in samples_per_class_info.lower() THEN
+         // Extract number if possible
+         numbers = extract_numbers(samples_per_class_info)
+         IF numbers AND min(numbers) < 500 THEN
+            comments.append(f"Warning: Some classes may have < 500 images (minimum required)")
+   
+   c) Check n_classes
+      n_classes = json_data.get('n_classes', 0)
+      
+      IF n_classes < 2 OR n_classes > 20 THEN
+         comments.append(f"Warning: Number of classes ({n_classes}) outside recommended range [2-20]")
+
+// ============================================================
+// FINAL OUTPUT
+// ============================================================
+
+8. RETURN (total_marks, breakdown, comments)
