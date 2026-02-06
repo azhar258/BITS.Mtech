@@ -1,0 +1,505 @@
+================================================================================
+RNN ASSIGNMENT GRADING ALGORITHMS - (Library-Based Transformers)
+Updated: Accepts torch.nn.TransformerEncoder, keras.layers.MultiHeadAttention, 
+         OR manual Q,K,V implementation
+================================================================================
+
+Algorithm: PRE_VALIDATION_CHECK_RNN
+Input: notebook_path, folder_name
+Output: (pass/fail, error_message)
+
+1. LOAD notebook from notebook_path
+   IF notebook is NULL or corrupted THEN
+      RETURN (FAIL, "Error or corrupted notebook - cannot be opened", marks=0)
+   
+2. EXTRACT bits_id_from_filename from notebook_path
+   EXTRACT bits_id_from_notebook from first cell metadata/content
+   IF bits_id_from_filename ≠ bits_id_from_notebook THEN
+      RETURN (FAIL, "Filename does not match BITS ID inside notebook", marks=0)
+
+3. EXTRACT student_name_from_notebook from first cell
+   IF folder_name ≠ student_name_from_notebook THEN
+      RETURN (FAIL, "Folder name does not match student name in notebook", marks=0)
+
+4. CHECK notebook execution status
+   IF any cell has no output OR all output cells are empty THEN
+      RETURN (FAIL, "All outputs cleared - notebook not executed", marks=0)
+
+5. CHECK for execution errors
+   FOR each cell in notebook DO
+      IF cell contains error traceback OR exception THEN
+         RETURN (FAIL, "Notebook contains execution errors", marks=0)
+
+6. RETURN (PASS, "Pre-validation successful", proceed_to_grading=TRUE)
+
+
+
+Algorithm: RNN_STRICT_GRADING
+Input: validated_notebook
+Output: (total_marks, breakdown, comments)
+
+Initialize: total_marks = 0, breakdown = {}, comments = []
+
+// ============================================================
+// SECTION 1: LSTM/GRU Implementation (5 marks)
+// ============================================================
+
+1. LSTM_GRU_CHECK (5 marks):
+   score = 0
+   
+   a) Extract JSON output from notebook
+      IF JSON block not found THEN
+         comments.append("No JSON output found")
+         score = 0
+      ELSE
+         rnn_data = parse_json("rnn_model")
+   
+   b) Check LSTM/GRU architecture with stacked layers (2 marks)
+      source_code = extract_all_source_code(notebook)
+      model_type = rnn_data.get('model_type', '').upper()
+      
+      // Check for LSTM or GRU
+      IF model_type == "LSTM" THEN
+         IF "LSTM" in source_code OR "nn.LSTM" in source_code THEN
+            has_rnn_layer = TRUE
+            rnn_type_valid = TRUE
+         ELSE
+            has_rnn_layer = FALSE
+            rnn_type_valid = FALSE
+      ELSE IF model_type == "GRU" THEN
+         IF "GRU" in source_code OR "nn.GRU" in source_code THEN
+            has_rnn_layer = TRUE
+            rnn_type_valid = TRUE
+         ELSE
+            has_rnn_layer = FALSE
+            rnn_type_valid = FALSE
+      ELSE
+         has_rnn_layer = FALSE
+         rnn_type_valid = FALSE
+      
+      // Check for stacked layers (at least 2)
+      n_layers = rnn_data.get('architecture', {}).get('n_layers', 0)
+      has_stacked = n_layers >= 2
+      
+      IF has_rnn_layer AND rnn_type_valid AND has_stacked THEN
+         score += 2
+      ELSE IF NOT rnn_type_valid THEN
+         comments.append(f"Invalid or missing RNN model type: {model_type}")
+      ELSE IF NOT has_stacked THEN
+         comments.append(f"RNN needs at least 2 stacked layers, found: {n_layers}")
+      ELSE
+         comments.append("RNN architecture incomplete")
+   
+   c) Check model compilation/configuration (1 mark)
+      framework = rnn_data.get('framework', '').lower()
+      
+      IF framework in ['keras', 'tensorflow'] THEN
+         // Check for model.compile()
+         IF "model.compile" in source_code OR "compile(" in source_code THEN
+            properly_configured = TRUE
+         ELSE
+            properly_configured = FALSE
+      ELSE IF framework == 'pytorch' THEN
+         // Check for optimizer and loss function
+         IF ("optimizer" in source_code OR "optim." in source_code) AND 
+            ("criterion" in source_code OR "MSELoss" in source_code OR "loss" in source_code) THEN
+            properly_configured = TRUE
+         ELSE
+            properly_configured = FALSE
+      ELSE
+         properly_configured = FALSE
+      
+      IF properly_configured THEN
+         score += 1
+      ELSE
+         comments.append("RNN model not properly compiled/configured")
+   
+   d) Check training completed (1 mark)
+      initial_loss = rnn_data.get('initial_loss')
+      final_loss = rnn_data.get('final_loss')
+      
+      IF initial_loss AND final_loss AND initial_loss > 0 AND final_loss > 0 THEN
+         score += 1
+      ELSE
+         comments.append("RNN loss values missing or invalid")
+   
+   e) Check metrics calculated (1 mark)
+      required_metrics = ['mae', 'rmse', 'mape', 'r2_score']
+      metrics_found = 0
+      
+      FOR each metric in required_metrics DO
+         IF rnn_data.get(metric) is not None AND rnn_data.get(metric) != 0 THEN
+            metrics_found += 1
+      
+      IF metrics_found == 4 THEN
+         score += 1
+      ELSE
+         comments.append(f"RNN metrics incomplete: {metrics_found}/4")
+   
+   breakdown['rnn_model'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 2: Transformer Implementation (5 marks)
+// ============================================================
+
+2. TRANSFORMER_CHECK (5 marks):
+   score = 0
+   transformer_data = parse_json("transformer_model")
+   source_code = extract_all_source_code(notebook)
+   
+   a) Check positional encoding added (1 mark)
+      has_pe_json = transformer_data.get('architecture', {}).get('has_positional_encoding') == true
+      
+      // Check for positional encoding in code
+      has_pe_code = ("positional_encoding" in source_code OR 
+                     "PositionalEncoding" in source_code OR
+                     "positional_embeddings" in source_code OR
+                     ("sin(" in source_code AND "cos(" in source_code AND "position" in source_code))
+      
+      IF has_pe_json AND has_pe_code THEN
+         score += 1
+      ELSE IF NOT has_pe_code THEN
+         comments.append("Positional encoding not added (MANDATORY)")
+      ELSE
+         comments.append("Positional encoding missing or incomplete")
+   
+   b) Check multi-head attention (library OR manual) (2 marks)
+      // Accept library-based OR manual implementations
+      has_attention_json = transformer_data.get('architecture', {}).get('has_attention') == true
+      n_heads_json = transformer_data.get('architecture', {}).get('n_heads', 0)
+      
+      // Check for PyTorch library usage
+      has_pytorch_transformer = ("nn.TransformerEncoder" in source_code OR 
+                                 "TransformerEncoderLayer" in source_code)
+      
+      // Check for Keras library usage
+      has_keras_transformer = ("MultiHeadAttention" in source_code OR 
+                               "layers.MultiHeadAttention" in source_code)
+      
+      // Check for manual implementation (original check)
+      has_manual_attention = (
+         ("attention" in source_code.lower() OR "Attention" in source_code) AND
+         ("query" in source_code.lower() OR "Q" in source_code) AND
+         ("key" in source_code.lower() OR "K" in source_code) AND
+         ("value" in source_code.lower() OR "V" in source_code)
+      )
+      
+      // Accept ANY implementation approach
+      has_attention_implementation = (has_pytorch_transformer OR 
+                                     has_keras_transformer OR 
+                                     has_manual_attention)
+      
+      // Extract n_heads from code if using libraries
+      IF "nhead=" in source_code OR "num_heads=" in source_code THEN
+         extract n_heads_code from source_code
+         n_heads = MAX(n_heads_json, n_heads_code)
+      ELSE
+         n_heads = n_heads_json
+      
+      // Scaling and softmax: required for manual, automatic in libraries
+      IF has_manual_attention THEN
+         has_scaling = ("sqrt" in source_code OR "math.sqrt" in source_code OR "torch.sqrt" in source_code)
+         has_softmax = ("softmax" in source_code.lower() OR "Softmax" in source_code)
+      ELSE
+         // Libraries handle scaling and softmax internally
+         has_scaling = TRUE
+         has_softmax = TRUE
+      
+      // Check for multi-head (n_heads > 1)
+      has_multihead = n_heads > 1
+      
+      // Grading logic
+      IF has_attention_json AND has_attention_implementation AND has_scaling AND has_softmax THEN
+         IF has_multihead THEN
+            score += 2
+            IF has_pytorch_transformer OR has_keras_transformer THEN
+               comments.append(f"Multi-head attention (library-based, {n_heads} heads)")
+            ELSE
+               comments.append(f"Multi-head attention (manual, {n_heads} heads)")
+         ELSE
+            score += 1
+            comments.append(f"Attention implemented but only single-head (n_heads={n_heads})")
+      ELSE IF NOT has_attention_implementation THEN
+         comments.append("Multi-head attention not implemented (no library or manual implementation)")
+      ELSE IF NOT has_scaling AND has_manual_attention THEN
+         comments.append("Manual attention: scaling (sqrt(d_k)) missing")
+      ELSE IF NOT has_softmax AND has_manual_attention THEN
+         comments.append("Manual attention: softmax for attention weights missing")
+      ELSE
+         comments.append("Attention mechanism incomplete")
+   
+   c) Check model configured and training completed (1 mark)
+      initial_loss = transformer_data.get('initial_loss')
+      final_loss = transformer_data.get('final_loss')
+      
+      IF initial_loss AND final_loss AND initial_loss > 0 AND final_loss > 0 THEN
+         score += 1
+      ELSE
+         comments.append("Transformer training not completed or loss values invalid")
+   
+   d) Check metrics calculated (1 mark)
+      required_metrics = ['mae', 'rmse', 'mape', 'r2_score']
+      metrics_found = 0
+      
+      FOR each metric in required_metrics DO
+         IF transformer_data.get(metric) is not None AND transformer_data.get(metric) != 0 THEN
+            metrics_found += 1
+      
+      IF metrics_found == 4 THEN
+         score += 1
+      ELSE
+         comments.append(f"Transformer metrics incomplete: {metrics_found}/4")
+   
+   breakdown['transformer_model'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 3: Training Process (4 marks)
+// ============================================================
+
+3. LOSS_CONVERGENCE_CHECK (4 marks):
+   score = 0
+   
+   a) RNN model convergence (2 marks)
+      rnn_initial = rnn_data.get('initial_loss')
+      rnn_final = rnn_data.get('final_loss')
+      
+      IF rnn_initial AND rnn_final AND rnn_initial > 0 THEN
+         IF rnn_final < rnn_initial THEN
+            reduction_pct = ((rnn_initial - rnn_final) / rnn_initial) * 100
+            
+            IF reduction_pct >= 50 THEN
+               score += 2
+               comments.append(f"RNN converged well: {reduction_pct:.1f}% reduction")
+            ELSE IF reduction_pct >= 20 THEN
+               score += 1
+               comments.append(f"RNN partial convergence: {reduction_pct:.1f}%")
+            ELSE
+               comments.append(f"RNN poor convergence: {reduction_pct:.1f}%")
+         ELSE
+            comments.append("RNN loss did not decrease")
+      ELSE
+         comments.append("RNN loss values invalid")
+   
+   b) Transformer convergence (2 marks)
+      transformer_initial = transformer_data.get('initial_loss')
+      transformer_final = transformer_data.get('final_loss')
+      
+      IF transformer_initial AND transformer_final AND transformer_initial > 0 THEN
+         IF transformer_final < transformer_initial THEN
+            reduction_pct = ((transformer_initial - transformer_final) / transformer_initial) * 100
+            
+            IF reduction_pct >= 50 THEN
+               score += 2
+               comments.append(f"Transformer converged well: {reduction_pct:.1f}% reduction")
+            ELSE IF reduction_pct >= 20 THEN
+               score += 1
+               comments.append(f"Transformer partial convergence: {reduction_pct:.1f}%")
+            ELSE
+               comments.append(f"Transformer poor convergence: {reduction_pct:.1f}%")
+         ELSE
+            comments.append("Transformer loss did not decrease")
+      ELSE
+         comments.append("Transformer loss values invalid")
+   
+   breakdown['training_process'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 4: Metrics Calculation (2 marks)
+// ============================================================
+
+4. METRICS_VALIDATION (2 marks):
+   score = 0
+   required_metrics = ['mae', 'rmse', 'mape', 'r2_score']
+   
+   // Check completeness and validity together
+   rnn_metrics_complete = TRUE
+   rnn_metrics_valid = TRUE
+   transformer_metrics_complete = TRUE
+   transformer_metrics_valid = TRUE
+   
+   FOR each metric in required_metrics DO
+      // RNN
+      rnn_val = rnn_data.get(metric)
+      IF rnn_val is None OR rnn_val == 0 THEN
+         rnn_metrics_complete = FALSE
+      ELSE
+         // Validate ranges
+         IF metric in ['mae', 'rmse', 'mape'] THEN
+            IF rnn_val <= 0 THEN
+               rnn_metrics_valid = FALSE
+         ELSE IF metric == 'r2_score' THEN
+            IF NOT (-1 <= rnn_val <= 1) THEN
+               rnn_metrics_valid = FALSE
+      
+      // Transformer
+      transformer_val = transformer_data.get(metric)
+      IF transformer_val is None OR transformer_val == 0 THEN
+         transformer_metrics_complete = FALSE
+      ELSE
+         // Validate ranges
+         IF metric in ['mae', 'rmse', 'mape'] THEN
+            IF transformer_val <= 0 THEN
+               transformer_metrics_valid = FALSE
+         ELSE IF metric == 'r2_score' THEN
+            IF NOT (-1 <= transformer_val <= 1) THEN
+               transformer_metrics_valid = FALSE
+   
+   // Scoring
+   IF rnn_metrics_complete AND rnn_metrics_valid AND 
+      transformer_metrics_complete AND transformer_metrics_valid THEN
+      score = 2
+   ELSE IF (rnn_metrics_complete AND rnn_metrics_valid) OR 
+           (transformer_metrics_complete AND transformer_metrics_valid) THEN
+      score = 1
+      IF NOT rnn_metrics_complete OR NOT transformer_metrics_complete THEN
+         comments.append("Metrics incomplete for one or both models")
+      ELSE
+         comments.append("Metrics out of valid range for one or both models")
+   ELSE
+      score = 0
+      comments.append("Metrics missing or invalid for both models")
+   
+   // Primary metric validation (informational only, no marks)
+   primary_metric = json_data.get('primary_metric', '').upper()
+   IF primary_metric NOT in ['MAE', 'RMSE', 'MAPE'] THEN
+      comments.append("Warning: Invalid primary metric specified")
+   
+   metric_justification = json_data.get('metric_justification', '')
+   IF NOT metric_justification OR len(metric_justification.strip()) < 20 THEN
+      comments.append("Warning: Metric justification missing or too short")
+   
+   breakdown['metrics'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 5: Analysis Quality (2 marks)
+// ============================================================
+
+5. ANALYSIS_CHECK (2 marks):
+   score = 0
+   
+   // Extract analysis text
+   analysis_text = json_data.get('analysis', '')
+   IF NOT analysis_text OR len(analysis_text.strip()) < 50 THEN
+      // Fallback: extract from markdown cells
+      analysis_text = extract_analysis_from_markdown(notebook)
+   
+   word_count = count_words(analysis_text)
+   
+   // Word count check (informational only - no marks deduction)
+   IF word_count > 200 THEN
+      comments.append(f"Warning: Analysis exceeds 200 words ({word_count} words)")
+   
+   // Content quality check - key topics (2 marks)
+   analysis_lower = analysis_text.lower()
+   
+   key_topics = [
+      'performance', 'mae', 'rmse', 'mape', 'r2',  // Performance comparison
+      'rnn', 'lstm', 'gru', 'recurrent',  // RNN architecture
+      'transformer', 'attention', 'self-attention',  // Transformer architecture
+      'long-term', 'dependency', 'dependencies', 'sequence',  // Long-term dependencies
+      'computational', 'parameters', 'training time', 'cost', 'efficiency',  // Computational cost
+      'convergence', 'loss',  // Convergence behavior
+      'advantage', 'disadvantage', 'insight', 'comparison'  // Comparative insights
+   ]
+   
+   topics_covered = 0
+   FOR each topic in key_topics DO
+      IF topic in analysis_lower THEN
+         topics_covered += 1
+   
+   // Scoring based on topic coverage and depth
+   IF topics_covered >= 8 THEN
+      score = 2
+   ELSE IF topics_covered >= 5 THEN
+      score = 1
+      comments.append(f"Analysis covers some topics but could be deeper: {topics_covered} keywords")
+   ELSE
+      score = 0
+      comments.append(f"Analysis lacks depth: only {topics_covered} key topics covered")
+   
+   breakdown['analysis'] = score
+   total_marks += score
+
+// ============================================================
+// SECTION 6: Code Structure (2 marks)
+// ============================================================
+
+6. CODE_STRUCTURE_CHECK (2 marks):
+   score = 0
+   source_code = extract_all_source_code(notebook)
+   
+   a) Model definitions complete (1 mark)
+      // Check for RNN (LSTM/GRU)
+      has_rnn = ("LSTM" in source_code OR "GRU" in source_code OR 
+                 "nn.LSTM" in source_code OR "nn.GRU" in source_code)
+      
+      // Check for Transformer with attention
+      has_transformer = (("attention" in source_code.lower() OR "Attention" in source_code) AND
+                        ("positional" in source_code.lower() OR "PositionalEncoding" in source_code))
+      
+      IF has_rnn AND has_transformer THEN
+         score += 1
+      ELSE
+         comments.append("Model definitions incomplete (RNN or Transformer missing)")
+   
+   b) JSON output structure (1 mark)
+      IF json_data THEN
+         has_rnn_key = 'rnn_model' in json_data
+         has_transformer_key = 'transformer_model' in json_data
+         has_dataset_info = 'dataset_name' in json_data
+         has_sequence_info = 'sequence_length' in json_data
+         
+         IF has_rnn_key AND has_transformer_key AND has_dataset_info AND has_sequence_info THEN
+            score += 1
+         ELSE
+            comments.append("JSON output structure incorrect or incomplete")
+      ELSE
+         comments.append("No JSON output found")
+   
+   breakdown['code_structure'] = score
+   total_marks += score
+
+// ============================================================
+// TIME SERIES VALIDATION (Additional checks, no marks deduction)
+// ============================================================
+
+7. TIME_SERIES_CHECKS (Informational warnings):
+   
+   a) Check train/test split
+      train_test_ratio = json_data.get('train_test_ratio', '')
+      
+      IF train_test_ratio NOT in ['90/10', '85/15'] THEN
+         comments.append(f"Warning: Train/test split {train_test_ratio} not standard (use 90/10 or 85/15)")
+   
+   b) Check sequence length
+      sequence_length = json_data.get('sequence_length', 0)
+      
+      IF sequence_length < 10 OR sequence_length > 50 THEN
+         comments.append(f"Warning: Sequence length {sequence_length} outside recommended range [10-50]")
+   
+   c) Check prediction horizon
+      prediction_horizon = json_data.get('prediction_horizon', 0)
+      
+      IF prediction_horizon < 1 OR prediction_horizon > 10 THEN
+         comments.append(f"Warning: Prediction horizon {prediction_horizon} outside recommended range [1-10]")
+   
+   d) Check dataset size
+      n_samples = json_data.get('n_samples', 0)
+      
+      IF n_samples < 1000 THEN
+         comments.append(f"Warning: Dataset has only {n_samples} samples (minimum 1000 recommended)")
+   
+   e) Check for temporal split (detect shuffling)
+      // Look for shuffle keywords in code
+      IF "shuffle=True" in source_code OR "shuffle = True" in source_code THEN
+         comments.append("WARNING: Time series data appears to be shuffled (temporal order violated)")
+
+// ============================================================
+// FINAL OUTPUT
+// ============================================================
+
+8. RETURN (total_marks, breakdown, comments)
