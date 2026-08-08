@@ -1,0 +1,30 @@
+Income: 600000
+CIBIL: 700
+Previous Defaults: no
+Employment: 1 years
+--- Bank Loan Approval Expert System ---
+Enter Annual Income (numeric value): Enter CIBIL Score (numeric value): Enter Any Past Defaults? (yes/no): Enter Employment History Duration in years (numeric value): Final Decision: APPROVED (Lower Credit Limit)
+
+-----------------------------
+Income: 495000
+CIBIL: 780
+Previous Defaults: no
+Employment: 3 years
+--- Bank Loan Approval Expert System ---
+Enter Annual Income (numeric value): Enter CIBIL Score (numeric value): Enter Any Past Defaults? (yes/no): Enter Employment History Duration in years (numeric value): Final Decision: APPROVED (With Co-Signer)
+
+-----------------------------
+Income: 1500000
+CIBIL: 760
+Previous Defaults: yes
+Employment: 5 years
+--- Bank Loan Approval Expert System ---
+Enter Annual Income (numeric value): Enter CIBIL Score (numeric value): Enter Any Past Defaults? (yes/no): Enter Employment History Duration in years (numeric value): Final Decision: APPROVED (Lower Credit Limit)
+
+-----------------------------
+Income: 1500000
+CIBIL: 700
+Previous Defaults: no
+Employment: 0.5 years
+--- Bank Loan Approval Expert System ---
+Enter Annual Income (numeric value): Enter CIBIL Score (numeric value): Enter Any Past Defaults? (yes/no): Enter Employment History Duration in years (numeric value): Final Decision: REJECTED
